@@ -708,3 +708,16 @@ def test_weekly_working_hours_and_daily_deficit(client):
     assert day_map["2026-07-11"]["flag"] == "WEEKEND"
     assert day_map["2026-07-12"]["flag"] == "WEEKEND"
 
+
+def test_daily_summary_coordination(client):
+    """Test HR daily coordination summary with roster and status breakdown."""
+    res = client.get("/analytics/daily-summary?date=2026-07-06")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["date"] == "2026-07-06"
+    assert data["headcount"] >= 1
+    assert "present_count" in data
+    assert "unrecorded_count" in data
+    assert "roster" in data
+    assert isinstance(data["roster"], list)
+

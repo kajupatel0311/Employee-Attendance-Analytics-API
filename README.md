@@ -106,6 +106,8 @@ python -m pytest -v tests/test_api.py
   - Automatically dispatches shift-update email notifications (offline testable via outbox, delivered via SMTP when `SMTP_HOST` is configured).
 - **Weekly Tracking & Deficit Analysis (`GET /analytics/employees/{emp_code}/weekly`)**:
   - Tracks compliance against weekly 40-hour targets, calculating shortfalls and auditing daily compliance (`COMPLIANT`, `INSUFFICIENT_HOURS`, `HALF_DAY_DEFICIT`, `ABSENT`, `WEEKEND`) without mutating official records.
+- **Real-Time Daily Coordination Summary (`GET /analytics/daily-summary`)**:
+  - Real-time pulse providing HR with headcount counts for present, late, on-duty, WFH, on-leave, and unrecorded employees, complete with shift-mapped roster details for daily operational planning.
 
 ---
 

@@ -1485,6 +1485,128 @@ def get_department_trend(
     return {"department": department, "items": items}
 
 
+@app.get("/analytics/daily-summary")
+def get_daily_summary(
+    target_date: Optional[str] = Query(None, alias="date", description="Target calendar date YYYY-MM-DD (defaults to today in IST)"),
+    department: Optional[str] = Query(None, description="Optional department filter"),
+):
+    """
+    Real-time daily attendance coordination summary for HR and management.
+    Summarizes today's present, late, on-duty, WFH, on-leave, and unrecorded headcount.
+    """
+    if target_date is None:
+        target_date = datetime.now(IST).strftime("%Y-%m-%d")
+    else:
+        try:
+            date.fromisoformat(target_date)
+        except Exception:
+            raise HTTPException(status_code=422, detail="Invalid date format. Use YYYY-MM-DD")
+
+    # Match employees active on or before target date
+    emp_filter: Dict[str, Any] = {"joined_on": {"$lte": target_date}}
+    if department:
+        emp_filter["department"] = department
+
+    active_emps = list(db.employees.find(emp_filter, {"_id": 0, "emp_code": 1, "name": 1, "department": 1, "shift_start": 1, "shift_end": 1}))
+    total_headcount = len(active_emps)
+
+    if total_headcount == 0:
+        return {
+            "date": target_date,
+            "department": department or "ALL",
+            "headcount": 0,
+            "present_count": 0,
+            "wfh_count": 0,
+            "on_duty_count": 0,
+            "late_count": 0,
+            "leave_count": 0,
+            "absent_count": 0,
+            "unrecorded_count": 0,
+            "attendance_rate": None,
+            "roster": [],
+        }
+
+    emp_codes = [e["emp_code"] for e in active_emps]
+    emp_map = {e["emp_code"]: e for e in active_emps}
+
+    logs_cursor = db.attendance_logs.find({"emp_code": {"$in": emp_codes}, "date": target_date})
+    logs_map = {l["emp_code"]: l for l in logs_cursor}
+
+    present_c = 0
+    wfh_c = 0
+    on_duty_c = 0
+    late_c = 0
+    leave_c = 0
+    absent_c = 0
+    unrecorded_c = 0
+
+    roster = []
+    for code, emp in emp_map.items():
+        log = logs_map.get(code)
+        if log:
+            st = log.get("status", "PRESENT")
+            late_m = int(log.get("late_minutes", 0))
+            wh = log.get("work_hours")
+            is_late = late_m > 0
+
+            if st == "PRESENT":
+                present_c += 1
+            elif st == "WFH":
+                wfh_c += 1
+            elif st == "ON_DUTY":
+                on_duty_c += 1
+            elif st == "LEAVE":
+                leave_c += 1
+            elif st == "ABSENT":
+                absent_c += 1
+
+            if is_late:
+                late_c += 1
+
+            roster.append({
+                "emp_code": code,
+                "name": emp.get("name"),
+                "department": emp.get("department"),
+                "shift": f"{emp.get('shift_start')}-{emp.get('shift_end')}",
+                "status": st,
+                "punch_in": dt_to_epoch_ms(log.get("punch_in")),
+                "punch_out": dt_to_epoch_ms(log.get("punch_out")),
+                "late_minutes": late_m,
+                "work_hours": wh,
+            })
+        else:
+            unrecorded_c += 1
+            roster.append({
+                "emp_code": code,
+                "name": emp.get("name"),
+                "department": emp.get("department"),
+                "shift": f"{emp.get('shift_start')}-{emp.get('shift_end')}",
+                "status": "UNRECORDED",
+                "punch_in": None,
+                "punch_out": None,
+                "late_minutes": 0,
+                "work_hours": None,
+            })
+
+    total_attending = present_c + wfh_c + on_duty_c
+    att_rate = round_half_up(total_attending / total_headcount, 4) if total_headcount > 0 else 0.0
+
+    return {
+        "date": target_date,
+        "department": department or "ALL",
+        "headcount": total_headcount,
+        "present_count": present_c,
+        "wfh_count": wfh_c,
+        "on_duty_count": on_duty_c,
+        "late_count": late_c,
+        "leave_count": leave_c,
+        "absent_count": absent_c,
+        "unrecorded_count": unrecorded_c,
+        "attendance_rate": att_rate,
+        "roster": roster,
+    }
+
+
 # Explain Endpoint
 @app.get("/admin/explain/{endpoint}")
 def explain_endpoint(
